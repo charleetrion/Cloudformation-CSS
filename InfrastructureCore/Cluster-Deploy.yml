@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: "t2.micro"
+  minSize:
+    Type: Number
+    Default: 1
+  maxSize:
+    Type: Number
+    Default: 1
+  DesiredCapacity:
+    Type: Number
+    Default: 1
+  ECSAMI:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: "ECSCluster"
+
+  ECSAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: ECSCluster
+    Properties:
+      VPCZoneIdentifier:
+       - !ImportValue "MyPublicSubnetId"
+      MinSize: !Ref minSize
+      MaxSize: !Ref maxSize
+      DesiredCapacity: !Ref DesiredCapacity
+      TargetGroupARNs:
+        - !ImportValue "TargetGroupArn"
+      LaunchTemplate:
+        LaunchTemplateName:  "ECSLaunchTemplate"
+        Version: !GetAtt ECSInstanceLaunchTemplate.LatestVersionNumber
+      MetricsCollection:
+        - Granularity: "1Minute"
+    CreationPolicy:
+      ResourceSignal:
+        Count: !Ref minSize
+        Timeout: PT5M
+    UpdatePolicy:
+        AutoScalingReplacingUpdate:
+          WillReplace: true
+
+  ECSInstanceLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: "ECSLaunchTemplate"
+      LaunchTemplateData:
+        ImageId: !Ref ECSAMI
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile:
+          Name: !Ref ECSInstanceProfile
+        Monitoring:
+          Enabled: true
+        NetworkInterfaces:
+          - AssociatePublicIpAddress: true
+            DeviceIndex: 0
+            Groups:
+              - !Ref ECSInstanceSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+              #!/bin/bash -xe
+              echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+              yum install -y aws-cfn-bootstrap 
+              /opt/aws/bin/cfn-signal -e $? --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSAutoScalingGroup
+
+  ECSInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow HTTP traffic for ECS"
+      VpcId: !ImportValue "MyVPCId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !ImportValue "MyLoadBalancerSecurityGroupId"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+
+  ECSInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ECSInstanceRole
+
+  ECSInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+      Policies:
+        - PolicyName: ECSClusterJoinPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:ListContainerInstances
+                  - ecs:DescribeClusters
+                  - ecs:DescribeContainerInstances
+                  - ecs:RegisterContainerInstance
+                  - ecs:DeregisterContainerInstance
+                  - ecs:UpdateContainerInstancesState
+                  - ecs:DiscoverPollEndpoint
+                  - ecs:StartTelemetrySession
+                  - ecs:SubmitContainerStateChange
+                  - ecs:SubmitTaskStateChange
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - ec2:DescribeInstances
+                  - ec2:DescribeTags
+                  - ssm:GetParameter
+                  - ec2:DescribeNetworkInterfaces
+                  - ssm:DescribeInstanceInformation
+                  - cloudformation:SignalResource
+                  - cloudformation:DescribeStackResource
+                Resource: "*"
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/ecs/practicante"
+      RetentionInDays: 3
+
+
+Outputs:
+  ECSClusterName:
+    Description: Nombre del clúster de ECSs
+    Value: !Ref ECSCluster
+    Export:
+      Name: ECSClusterName
+
+  ECSInstanceSecurityGroupId:
+    Description: "ID del grupo de seguridad para las instancias de ECS"
+    Value: !Ref ECSInstanceSecurityGroup
+    Export:
+      Name: "ECSInstanceSecurityGroupId"
+
