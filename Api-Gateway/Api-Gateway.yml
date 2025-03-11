@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+# API Gateway REST API
+  MyApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: MyAPIGateway
+
+# Recurso en API Gateway (ruta "/lambda")
+  MyApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MyApiGateway
+      ParentId: !GetAtt MyApiGateway.RootResourceId      # Define la raíz de la API
+      PathPart: "lambda"         # Especifica que este recurso manejará la ruta "/lambda"
+
+# Metodo GET en el recurso
+  MyApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MyApiGateway
+      ResourceId: !Ref MyApiResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: GET
+        Uri:
+          Fn::Sub:
+            - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations"
+            - LambdaArn: !ImportValue LambdaFunctionArn
+        IntegrationResponses:
+          - StatusCode: 200
+
+# Metodo POST en el recurso
+  MyApiMethodPOST:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MyApiGateway
+      ResourceId: !Ref MyApiResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Sub:
+            - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations"
+            - LambdaArn: !ImportValue LambdaFunctionArn
+        IntegrationResponses:
+          - StatusCode: 200
+
+# Permiso para que API Gateway invoque Lambda
+  ApiGatewayInvokeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !ImportValue LambdaFunctionArn
+      Principal: "apigateway.amazonaws.com"
+      SourceArn:
+        Fn::Sub: "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*/*/lambda"
+
+# Despliegue de API Gateway
+  MyApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+    - MyApiMethod   # Se asegura de que el metodo GET esté configurado antes del despliegue.
+    - MyApiMethodPOST   # Se asegura de que el metodo POST esté configurado antes del despliegue.
+    Properties:
+      RestApiId: !Ref MyApiGateway
+      StageName: prod
+
+Outputs:
+  ApiEndpoint:
+    Description: "URL de API Gateway"
+    Value:
+      Fn::Sub: "https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/lambda"
