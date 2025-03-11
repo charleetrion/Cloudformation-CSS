@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaBasicExecution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  # Función Lambda
+  MyLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: MyLambdaFunction
+      Runtime: python3.9
+      Handler: index.lambda_handler    # Especifica el archivo y la función que se ejecutará
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          def lambda_handler(event, context):  
+              logger.info("Evento recibido: %s", json.dumps(event))
+              
+              body = {}
+              if "body" in event:
+                  try:
+                      body = json.loads(event["body"]) if event["body"] else {}
+                  except json.JSONDecodeError:
+                      return {
+                          "statusCode": 400,
+                          "body": json.dumps({"error": "JSON inválido"})
+                      }
+
+              nombre = body.get("nombre", "?")
+            
+              return {
+                  "statusCode": 200,
+                  "body": json.dumps({"message": f"¡Hola {nombre}, Estas probando la funcion lambda !"})
+              }
+
+Outputs:
+  LambdaFunctionArn:
+    Description: "ARN de la función Lambda"
+    Value: !GetAtt MyLambdaFunction.Arn
+    Export:
+      Name: LambdaFunctionArn
