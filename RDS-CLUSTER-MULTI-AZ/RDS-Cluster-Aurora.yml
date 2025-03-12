@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  AuroraDBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineVersion: '8.0.mysql_aurora.3.04.0'
+      DatabaseName: mydatabase
+      MasterUsername: admin
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+      BackupRetentionPeriod: 7
+      StorageEncrypted: true
+      DeletionProtection: true
+
+  AuroraWriterInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.r6g.large
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: true
+      AvailabilityZone: us-east-1a
+
+  AuroraReaderInstance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.r6g.large
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: true
+      AvailabilityZone: us-east-1b
+
+  AuroraReaderInstance2:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.r6g.large
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: true
+      AvailabilityZone: us-east-1c
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: 'Subnets for Aurora Cluster'
+      SubnetIds:
+        - !ImportValue MyPublicSubnetId
+        - !ImportValue MyPublicSubnet2Id
+        - !ImportValue MyPublicSubnet3Id
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Aurora Security Group'
+      VpcId: !ImportValue MyVPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+
+Outputs:
+  ClusterEndpoint:
+    Description: 'Aurora Cluster Endpoint for writing'
+    Value: !GetAtt AuroraDBCluster.Endpoint.Address
+  ReaderEndpoint:
+    Description: 'Aurora Cluster Reader Endpoint for reading'
+    Value: !GetAtt AuroraDBCluster.ReadEndpoint.Address
+
+Parameters:
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: 'Password for the Aurora Cluster'
