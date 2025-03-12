@@ -25,6 +25,16 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
+        - PolicyName: LambdaVPCAccess  # ✅ Agregar permisos para crear Network Interfaces (ENI)
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
 
   # Función Lambda
   MyLambdaFunction:
@@ -34,33 +44,60 @@ Resources:
       Runtime: python3.9
       Handler: index.lambda_handler    # Especifica el archivo y la función que se ejecutará
       Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 10
+      MemorySize: 256
+
+  # Conexion a la VPC
+      VpcConfig:
+        SubnetIds:
+          - !ImportValue MyPublicSubnetId
+          - !ImportValue MyPublicSubnet2Id
+        SecurityGroupIds:
+          - !ImportValue LambdaSecurityGroup
+
+      Environment:
+        Variables:
+          DB_HOST: "fastapi-rds-mysql-public.cdg8ka0syqql.us-east-1.rds.amazonaws.com"
+          DB_PORT: "3306"
+          DB_NAME: "FastapiCloudFormation"
+          DB_USER: "admin"
+          DB_PASSWORD: "CDAR159930j"
+
+      Layers:
+        - "arn:aws:lambda:us-east-1:503561429281:layer:pymysql:3"
       Code:
         ZipFile: |
           import json
-          import logging
+          import pymysql
+          import os
           
-          logger = logging.getLogger()
-          logger.setLevel(logging.INFO)
+          def lambda_handler(event, context):
+              try:
+                  connection = pymysql.connect(
+                      host=os.environ['DB_HOST'],
+                      user=os.environ['DB_USER'],
+                      password=os.environ['DB_PASSWORD'],
+                      database=os.environ['DB_NAME'],
+                      port=int(os.environ['DB_PORT']),
+                      cursorclass=pymysql.cursors.DictCursor
+                  )
+                  
+                  with connection.cursor() as cursor:
+                     cursor.execute("SELECT * FROM users;")
+                     users = cursor.fetchall()
+                  
+                  connection.close()
           
-          def lambda_handler(event, context):  
-              logger.info("Evento recibido: %s", json.dumps(event))
-              
-              body = {}
-              if "body" in event:
-                  try:
-                      body = json.loads(event["body"]) if event["body"] else {}
-                  except json.JSONDecodeError:
-                      return {
-                          "statusCode": 400,
-                          "body": json.dumps({"error": "JSON inválido"})
-                      }
-
-              nombre = body.get("nombre", "?")
-            
-              return {
-                  "statusCode": 200,
-                  "body": json.dumps({"message": f"¡Hola {nombre}, Estas probando la funcion lambda !"})
-              }
+                  return {
+                      "statusCode": 200,
+                      "body": json.dumps({"users": users})
+                  }
+          
+              except Exception as e:
+                  return {
+                      "statusCode": 500,
+                      "body": json.dumps({"error": str(e)})
+                  }
 
 Outputs:
   LambdaFunctionArn:
