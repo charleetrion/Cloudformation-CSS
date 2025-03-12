@@ -25,7 +25,7 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: "*"
-        - PolicyName: LambdaVPCAccess  # ✅ Agregar permisos para crear Network Interfaces (ENI)
+        - PolicyName: LambdaVPCAccess
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
