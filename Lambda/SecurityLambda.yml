@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+
+  # 🔹 Security Group para Lambda
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security Group para Lambda que permite conexion a RDS"
+      VpcId: !ImportValue MyVPCId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          DestinationSecurityGroupId:  sg-08e0f8d744f96f696 # ✅ Permitir salida solo al SG de RDS
+
+Outputs:
+  LambdaSecurityGroup:
+    Description: "ID del Security Group de Lambda"
+    Value: !Ref LambdaSecurityGroup
+    Export:
+      Name: LambdaSecurityGroup
