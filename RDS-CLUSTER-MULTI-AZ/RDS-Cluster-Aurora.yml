@@ -67,11 +67,52 @@ Resources:
 
 Outputs:
   ClusterEndpoint:
-    Description: 'Aurora Cluster Endpoint for writing'
+    Description: "Aurora Cluster Endpoint for writing"
     Value: !GetAtt AuroraDBCluster.Endpoint.Address
+    Export:
+      Name: ClusterEndpoint
+
   ReaderEndpoint:
-    Description: 'Aurora Cluster Reader Endpoint for reading'
+    Description: "Aurora Cluster Reader Endpoint for reading"
     Value: !GetAtt AuroraDBCluster.ReadEndpoint.Address
+    Export:
+      Name: ReaderEndpoint
+
+  AuroraDBCluster:
+    Description: "ARN del Cluster Aurora"
+    Value: !Ref AuroraDBCluster
+    Export:
+      Name: AuroraDBCluster
+
+  AuroraWriterInstance:
+    Description: "ID de la instancia de escritura de Aurora"
+    Value: !Ref AuroraWriterInstance
+    Export:
+      Name: AuroraWriterInstance
+
+  ReaderInstanceClass:
+    Description: "Clase de instancia de los nodos de lectura"
+    Value: "db.r6g.large"
+    Export:
+      Name: ReaderInstanceClass
+
+  DBSubnetGroup:
+    Description: "Grupo de subnets asociadas al Cluster Aurora"
+    Value: !Ref DBSubnetGroup
+    Export:
+      Name: DBSubnetGroup
+
+  DBSecurityGroup:
+    Description: "Grupo de seguridad asociado al Cluster Aurora"
+    Value: !Ref DBSecurityGroup
+    Export:
+      Name: DBSecurityGroup
+
+  AvailabilityZones:
+    Description: "Zonas de disponibilidad del clúster Aurora"
+    Value: "us-east-1a,us-east-1b,us-east-1c"
+    Export:
+      Name: AvailabilityZones
 
 Parameters:
   DBPassword:
