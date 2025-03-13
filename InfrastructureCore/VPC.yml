@@ -13,9 +13,13 @@ Parameters:
     Type: String
     Default: 10.0.2.0/24
 
+  PublicSubnet3Cidr:
+    Type: String
+    Default: 10.0.4.0/24
+
   PrivateSubnetCidr:
     Type: String
-    Default: 10.0.3.0/24
+    Default: 10.0.5.0/24
 
 Resources:
   # VPC
@@ -62,13 +66,25 @@ Resources:
         - Key: Name
           Value: PublicSubnet2
 
+  # Public Subnet 3
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref PublicSubnet3Cidr
+      VpcId: !Ref MyVPC
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 2, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: PublicSubnet3
+
   # Private Subnet
   PrivateSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       CidrBlock: !Ref PrivateSubnetCidr
       VpcId: !Ref MyVPC
-      AvailabilityZone: !Select [2, !GetAZs '']
+      AvailabilityZone: !Select [1, !GetAZs '']
       Tags:
         - Key: Name
           Value: PrivateSubnet
@@ -121,6 +137,30 @@ Resources:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable2
 
+  # Route Table for Public Subnet 3
+  PublicRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable3
+
+  # Route for Internet Access for Public Subnet 3
+  PublicRoute3:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyInternetGateway
+
+  # Associate Public Subnet 3 with Public Route Table
+  PublicSubnetRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable3
+
   # Route Table for Private Subnet
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
@@ -155,6 +195,12 @@ Outputs:
     Value: !Ref PublicSubnet2
     Export:
       Name: MyPublicSubnet2Id
+
+  PublicSubnet3Id:
+    Description: ID of the third public subnet
+    Value: !Ref PublicSubnet3
+    Export:
+      Name: MyPublicSubnet3Id
 
   PrivateSubnetId:
     Description: ID of the private subnet
