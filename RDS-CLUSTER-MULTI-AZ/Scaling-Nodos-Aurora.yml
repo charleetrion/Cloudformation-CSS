@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Escalar nodos de lectura de Aurora usando Lambda y EventBridge."
+
+#Funcion LAMBDA para escalar Aurora
+Resources:
+  ScaleAuroraLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ScaleAuroraLambda
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          DB_CLUSTER_ID: !ImportValue AuroraDBCluster
+          READER_INSTANCE_CLASS: !ImportValue ReaderInstanceClass
+          DB_SUBNET_GROUP: !ImportValue DBSubnetGroup
+          AVAILABILITY_ZONES: !ImportValue AvailabilityZones
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+          import logging
+          from botocore.exceptions import ClientError
+          
+          logging.basicConfig(level=logging.INFO)
+          logger = logging.getLogger()
+          
+          rds_client = boto3.client('rds')
+
+          DB_CLUSTER_ID = os.environ['DB_CLUSTER_ID']
+          READER_INSTANCE_CLASS = os.environ['READER_INSTANCE_CLASS']
+          SUBNET_GROUP = os.environ['DB_SUBNET_GROUP']
+          AVAILABILITY_ZONES = os.environ['AVAILABILITY_ZONES'].split(',')
+
+          def scale_up():
+              """Agregar una instancia de lectura."""
+              new_instance_id = f"{DB_CLUSTER_ID}-reader3"
+              try:
+                  response = rds_client.create_db_instance(
+                      DBInstanceIdentifier=new_instance_id,
+                      DBInstanceClass=READER_INSTANCE_CLASS,
+                      Engine="aurora-mysql",
+                      DBClusterIdentifier=DB_CLUSTER_ID,
+                      DBSubnetGroupName=SUBNET_GROUP,
+                      PubliclyAccessible=True,
+                      AvailabilityZone=AVAILABILITY_ZONES[2]  
+                  )
+                  logger.info(f"Instancia {new_instance_id} creada con éxito.")
+                  return response
+              except ClientError as e:
+                 logger.error(f"Error al crear instancia: {e}")
+                 return {"error": str(e)}
+          
+          
+          def scale_down():
+              """Eliminar la tercera instancia de lectura."""
+              instance_id = f"{DB_CLUSTER_ID}-reader3"
+              try:
+                  response = rds_client.delete_db_instance(
+                      DBInstanceIdentifier=instance_id,
+                      SkipFinalSnapshot=True
+                  )
+                  logger.info(f"Instancia {instance_id} eliminada con éxito.")
+                  return response
+              except ClientError as e:
+                  logger.error(f"Error al eliminar instancia: {e}")
+                  return {"error": str(e)}
+
+          def lambda_handler(event, context):
+              action = event.get('action', 'scale_up')
+              if action == 'scale_up':
+                  return scale_up()
+              elif action == 'scale_down':
+                  return scale_down()
+              return {"message": "No action performed"}
+
+# Rol de IAM para Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaRDSScalingRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RDSScalingPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds:CreateDBInstance
+                  - rds:DeleteDBInstance
+                  - rds:DescribeDBInstances
+                  - rds:ListTagsForResource
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+# EVENT BRIDGE - Programar escalado "Para programar EventBridge en AWS en colombia hay que tener presente esto: (UTC-5) y usando cron()"
+  ScaleUpRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(35 19 * * ? *)"  # Hora programada para escalar a 3 nodos a las ?.
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ScaleAuroraLambda.Arn
+          Id: "ScaleUpTarget"
+          Input: '{"action": "scale_up"}'
+
+  ScaleDownRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "cron(42 19 * * ? *)"  # Hora programada para reducir los nodos a 2 a las ?.
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ScaleAuroraLambda.Arn
+          Id: "ScaleDownTarget"
+          Input: '{"action": "scale_down"}'
+
+# Permisos para EVENT BRIDGE llamar Lambda
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ScaleAuroraLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScaleUpRule.Arn
+
+  PermissionForEventsToInvokeLambdaDown:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ScaleAuroraLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScaleDownRule.Arn
+
+Outputs:
+  LambdaFunctionARN:
+    Description: 'ARN de la función Lambda para escalar Aurora'
+    Value: !GetAtt ScaleAuroraLambda.Arn
+  ScaleUpRule:
+    Description: 'Regla de EventBridge para aumentar los nodos de lectura'
+    Value: !Ref ScaleUpRule
+  ScaleDownRule:
+    Description: 'Regla de EventBridge para reducir los nodos de lectura'
+    Value: !Ref ScaleDownRule
